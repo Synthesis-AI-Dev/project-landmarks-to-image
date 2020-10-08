@@ -13,3 +13,9 @@ Example: Visualize landmarks for all images in dir `samples/` and save output to
 python project_landmarks_on_images.py dir.input:samples/ dir.output:null
 ```
 
+## Installation
+The script requires python 3. Tested on Python 3.8.3. Install pip packages via:
+
+```shell script
+pip install -r requirements.txt
+```
