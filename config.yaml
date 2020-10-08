@@ -1,0 +1,20 @@
+dir:
+  input: samples/
+  output: null  # If not specified, outputs files to same dir as input.
+
+file_ext:
+  input: .rgb.png  # The files you want to apply distortion to
+  info: .info.json  # Contains camera intrinsics
+
+workers: 0  # How many processes to use to convert files. 0 for all cores in machine.
+
+# Hydra specific params.
+hydra:
+    output_subdir: null  # Disable saving of config files.
+    run:
+        dir: .  # Set working dir to current directory
+
+defaults:
+    # Disable log files
+    - hydra/job_logging: default
+    - hydra/hydra_logging: disabled
