@@ -74,7 +74,7 @@ def draw_landmarks(img_in: np.ndarray, landmarks: Sequence[np.ndarray]) -> np.nd
     img = img_in.copy()
     for landmark in landmarks:
         x, y = landmark.round().astype(np.int)
-        img = cv2.circle(img, (x, y), radius=2, color=(0, 0, 255), thickness=-1)
+        img = cv2.circle(img, (x, y), radius=4, color=(0, 0, 255), thickness=-1)
 
     return img
 

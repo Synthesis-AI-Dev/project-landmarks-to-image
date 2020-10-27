@@ -5,6 +5,7 @@ dir:
 file_ext:
   input: .rgb.png  # The files you want to apply distortion to
   info: .info.json  # Contains camera intrinsics
+  depth: .depth.tif
 
 workers: 0  # How many processes to use to convert files. 0 for all cores in machine.
 
