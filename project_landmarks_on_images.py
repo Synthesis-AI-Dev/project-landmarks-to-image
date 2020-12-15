@@ -91,7 +91,10 @@ def _process_file(f_json: Path, f_img: Path, dir_output: Path):
         To cast to screen space, we convert them to computer vision camera notation: Y: down, Z: fwd
     """
     # Load RGB image and image metadata
-    img = cv2.imread(str(f_img), cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+    img = cv2.imread(str(f_img), cv2.IMREAD_COLOR)
+    if img is None:
+        raise RuntimeError(f"Could not read image. Possibly corrupted file: {f_img}")
+
     with f_json.open() as json_file:
         metadata = json.load(json_file)
         metadata = OmegaConf.create(metadata)
