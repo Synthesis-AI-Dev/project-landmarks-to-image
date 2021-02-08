@@ -3,7 +3,7 @@ dir:
   output: null  # If not specified, outputs files to same dir as input.
 
 file_ext:
-  input: .rgb.png  # The files you want to apply distortion to
+  rgb: .rgb.png  # The files you want to apply distortion to
   info: .info.json  # Contains camera intrinsics
   depth: .depth.tif
 
