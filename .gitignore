@@ -1,6 +1,7 @@
 # custom
 .idea/
-*face.ply
+*face_mesh.ply
+config.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

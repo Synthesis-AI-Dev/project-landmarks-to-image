@@ -7,6 +7,11 @@ file_ext:
   info: .info.json  # Contains camera intrinsics
   depth: .depth.tif
 
+# Config specifically for the 3D landmarks
+landmarks_3d:
+  render_id: -1  # Process this render id. If -1, will process all images
+  visualize: false # Whether to show the result in a window. true
+
 workers: 0  # How many processes to use to convert files. 0 for all cores in machine.
 
 # Hydra specific params.

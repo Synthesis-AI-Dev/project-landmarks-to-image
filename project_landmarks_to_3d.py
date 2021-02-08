@@ -13,8 +13,11 @@ from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
 
+FACE_MESH_DOWNSAMPLE_RADIUS = 0.003
+LANDMARK_SPHERE_RADIUS = 0.0015  # Size of the sph
 
-def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path):
+
+def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualize_mesh: bool = False):
     """Project facial landmarks on rgb image and save output visualization
     Args:
         f_json (Path): Json file containing camera intrinsics
@@ -27,8 +30,6 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path):
         To cast to screen space, we convert them to computer vision camera notation: Y: down, Z: fwd
     """
     # Load images and metadata
-    # img = cv2.imread(str(f_img), cv2.IMREAD_COLOR)
-    # depth_img = cv2.imread(str(f_img), cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     with f_json.open() as json_file:
         metadata = json.load(json_file)
         metadata = OmegaConf.create(metadata)
@@ -66,39 +67,39 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path):
     # Convert to houdini coordinate system: x: right, y: up, z: behind.
     # Projecting to intrinsics converts to camera coord system of x: right, y: down, z: forward
     # This corresponds to 180 deg rot around x-axis
-    r = R.from_euler('x', 180, degrees=True)
+    r = R.from_euler("x", 180, degrees=True)
     rot_mat = r.as_matrix()
     img_pts = (rot_mat @ img_pts.T).T
 
-    # Add the landmarks to points. Make them red in color
-    img_pts_with_landmarks = np.concatenate([img_pts, landmarks_cam], axis=0)
-    col_red = np.zeros(landmarks_cam.shape, dtype=np.float32)
-    col_red[:, 0] = 1.0
-    rgb_with_landmarks = np.concatenate([rgb_pxs, col_red], axis=0)
-
-    # construct pointcloud of face
+    # Construct pointcloud of face
     pcd_face = o3d.geometry.PointCloud()
-    pcd_face.points = o3d.utility.Vector3dVector(img_pts_with_landmarks)
-    pcd_face.colors = o3d.utility.Vector3dVector(rgb_with_landmarks)
-    # downsample and estimate normals
-    pcd_face = pcd_face.voxel_down_sample(voxel_size=0.005)
+    pcd_face.points = o3d.utility.Vector3dVector(img_pts)
+    pcd_face.colors = o3d.utility.Vector3dVector(rgb_pxs)
+    # Downsample and estimate normals
+    pcd_face = pcd_face.voxel_down_sample(voxel_size=FACE_MESH_DOWNSAMPLE_RADIUS)
     pcd_face.estimate_normals()
     pcd_face.orient_normals_towards_camera_location()
 
-    # construct mesh of face
+    # Construct mesh of face from pointcloud
     radii = [0.005, 0.01]
-    rec_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-        pcd_face, o3d.utility.DoubleVector(radii))
-    o3d.visualization.draw_geometries([pcd_face, rec_mesh])
+    face_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+        pcd_face, o3d.utility.DoubleVector(radii)
+    )
 
-    out_filename = dir_output / f"{f_img.stem}.face.ply"
-    o3d.io.write_point_cloud(str(out_filename), pcd_face)
+    # Add a red spherical mesh for each landmark
+    for landmark_ in landmarks_cam:
+        sphere = o3d.geometry.TriangleMesh.create_sphere(radius=LANDMARK_SPHERE_RADIUS)
+        sphere.paint_uniform_color(np.array([[1], [0], [0]], dtype=np.float64))
+        sphere.translate(landmark_)
+        face_mesh += sphere
 
-    # Construct pointcloud
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(landmarks_cam)
-    out_filename = dir_output / f"{f_img.stem}.landmarks.ply"
-    o3d.io.write_point_cloud(str(out_filename), pcd)
+    # VISUALIZE THE DATA FOR DEBUGGING
+    if visualize_mesh:
+        o3d.visualization.draw_geometries([face_mesh], mesh_show_back_face=True)
+
+    # Save mesh of face with landmarks.
+    out_filename = dir_output / f"{f_img.stem}.face_mesh.ply"
+    o3d.io.write_triangle_mesh(str(out_filename), face_mesh)
 
 
 def get_render_id_from_path(path: Path):
@@ -164,15 +165,34 @@ def main(cfg: DictConfig):
             f"Unequal number of json files ({num_json}) and " f'depth images ({num_images}) in dir: "{dir_input}"'
         )
 
-    # with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-    #     with tqdm(total=len(info_filenames)) as pbar:
-    #         for _ in executor.map(
-    #             _process_file, info_filenames, rgb_filenames, depth_filenames, itertools.repeat(dir_output)
-    #         ):
-    #             # Catch any error raised in processes
-    #             pbar.update()
-    img_idx = 14
-    _process_file(info_filenames[img_idx], rgb_filenames[img_idx], depth_filenames[img_idx], dir_output)
+    # Process files
+    render_id = int(cfg.landmarks_3d.render_id)
+    visualize_mesh = cfg.landmarks_3d.visualize
+    if render_id > -1:
+        # If a specific render id given, process only that render id
+        info_file = dir_input / (f"{render_id}" + ext_info)
+        rgb_file = dir_input / (f"{render_id}" + ext_rgb)
+        depth_file = dir_input / (f"{render_id}" + ext_depth)
+        _process_file(info_file, rgb_file, depth_file, dir_output, visualize_mesh)
+    else:
+        # Process all the files using multiple processes
+        if visualize_mesh:
+            raise ValueError(
+                f"Visualization cannot be true when processing all the files."
+                f"Please pass landmarks_3d.visualize=false"
+            )
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with tqdm(total=len(info_filenames)) as pbar:
+                for _ in executor.map(
+                    _process_file,
+                    info_filenames,
+                    rgb_filenames,
+                    depth_filenames,
+                    itertools.repeat(dir_output),
+                    itertools.repeat(visualize_mesh),
+                ):
+                    # Catch any error raised in processes
+                    pbar.update()
 
 
 if __name__ == "__main__":
