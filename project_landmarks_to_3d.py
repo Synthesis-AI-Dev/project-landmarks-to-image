@@ -101,6 +101,10 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path):
     o3d.io.write_point_cloud(str(out_filename), pcd)
 
 
+def get_render_id_from_path(path: Path):
+    return int(str(path.name).split(".")[0])
+
+
 @hydra.main(config_path=".", config_name="config")
 def main(cfg: DictConfig):
     """Project facial landmarks on rgb image and create output visualization of the landmarks"""
@@ -136,7 +140,7 @@ def main(cfg: DictConfig):
     if ext_info_type != "json":
         raise ValueError(f"Unsupported filetype: {ext_info_type}. Info files must be of type json")
 
-    info_filenames = sorted(dir_input.glob("*" + ext_info))
+    info_filenames = sorted(dir_input.glob("*" + ext_info), key=get_render_id_from_path)
     num_json = len(info_filenames)
     log.info(f"Num Info Files: {num_json}")
     if num_json < 1:
@@ -144,7 +148,7 @@ def main(cfg: DictConfig):
             f"No info json files found. Searched:\n" f'  dir: "{dir_input}"\n' f'  file extention: "{ext_info}"'
         )
 
-    rgb_filenames = sorted(dir_input.glob("*" + ext_rgb))
+    rgb_filenames = sorted(dir_input.glob("*" + ext_rgb), key=get_render_id_from_path)
     num_images = len(rgb_filenames)
     log.info(f"Num Input Files: {num_images}")
     if num_images != num_json:
@@ -152,7 +156,7 @@ def main(cfg: DictConfig):
             f"Unequal number of json files ({num_json}) and " f'rgb images ({num_images}) in dir: "{dir_input}"'
         )
 
-    depth_filenames = sorted(dir_input.glob("*" + ext_depth))
+    depth_filenames = sorted(dir_input.glob("*" + ext_depth), key=get_render_id_from_path)
     num_images = len(depth_filenames)
     log.info(f"Num Depth Files: {num_images}")
     if num_images != num_json:
@@ -167,7 +171,8 @@ def main(cfg: DictConfig):
     #         ):
     #             # Catch any error raised in processes
     #             pbar.update()
-    _process_file(info_filenames[0], rgb_filenames[0], depth_filenames[0], dir_output)
+    img_idx = 14
+    _process_file(info_filenames[img_idx], rgb_filenames[img_idx], depth_filenames[img_idx], dir_output)
 
 
 if __name__ == "__main__":
