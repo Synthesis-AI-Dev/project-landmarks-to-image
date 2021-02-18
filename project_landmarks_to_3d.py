@@ -49,20 +49,23 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     img_pxs = np.stack((xx, yy), axis=2)  # shape (H, W, 2)
     img_pxs = img_pxs.reshape((-1, 2))  # Shape: [N, 2]
     img_pxs = np.concatenate([img_pxs, np.ones((h * w, 1))], axis=1)  # Add Homogenous coord. Shape: [N, 3]
+    rgb_pxs = rgb.reshape((-1, 3)).astype(np.float32) / 255.0  # Convert to [0,1] range. Shape: [N, 3]
+
     depth_pxs = depth.reshape((-1))  # Shape: [N]
     depth_pxs[np.isinf(depth_pxs)] = 0.0
     depth_pxs[np.isnan(depth_pxs)] = 0.0
-    rgb_pxs = rgb.reshape((-1, 3)).astype(np.float32) / 255.0  # Convert to [0,1] range. Shape: [N, 3]
+
+    # Filter valid pxs
     valid_pxs = ~(depth_pxs < 1e-6)  # Depth with value of 0 is not needed to construct ptcloud
+    depth_pxs = depth_pxs[valid_pxs]
+    img_pxs = img_pxs[valid_pxs, :]
+    rgb_pxs = rgb_pxs[valid_pxs, :]
 
     # Cast to 3D, scale by depth.
     intrinsics = np.array(metadata.camera.intrinsics, dtype=np.float32)
     intrinsics_inv = np.linalg.inv(intrinsics)
     img_pts = (intrinsics_inv @ img_pxs.T).T  # Cast to 3D, depth=1. Shape: [N, 3]
     img_pts[:, 2] *= depth_pxs  # Scale the depth
-    # Filter valid pxs
-    img_pts = img_pts[valid_pxs, :]
-    rgb_pxs = rgb_pxs[valid_pxs, :]
 
     # Convert to houdini coordinate system: x: right, y: up, z: behind.
     # Projecting to intrinsics converts to camera coord system of x: right, y: down, z: forward
@@ -87,15 +90,17 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     )
 
     # Add a red spherical mesh for each landmark
+    landmark_mesh = o3d.geometry.TriangleMesh()
     for landmark_ in landmarks_cam:
         sphere = o3d.geometry.TriangleMesh.create_sphere(radius=LANDMARK_SPHERE_RADIUS)
         sphere.paint_uniform_color(np.array([[1], [0], [0]], dtype=np.float64))
         sphere.translate(landmark_)
-        face_mesh += sphere
+        landmark_mesh += sphere
+    face_mesh += landmark_mesh
 
     # VISUALIZE THE DATA FOR DEBUGGING
     if visualize_mesh:
-        o3d.visualization.draw_geometries([face_mesh], mesh_show_back_face=True)
+        o3d.visualization.draw_geometries([landmark_mesh, pcd_face], mesh_show_back_face=True)
 
     # Save mesh of face with landmarks.
     out_filename = dir_output / f"{f_img.stem}.face_mesh.ply"
