@@ -6,6 +6,7 @@ file_ext:
   rgb: .rgb.png  # The files you want to apply distortion to
   info: .info.json  # Contains camera intrinsics
   depth: .depth.tif
+  alpha: .alpha.tif
 
 # Config specifically for the 3D landmarks
 landmarks_3d:

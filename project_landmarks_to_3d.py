@@ -13,11 +13,16 @@ from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
 
-FACE_MESH_DOWNSAMPLE_RADIUS = 0.003
+FACE_MESH_DOWNSAMPLE_RADIUS = 0.002
 LANDMARK_SPHERE_RADIUS = 0.0015  # Size of the sph
 
 
-def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualize_mesh: bool = False):
+def _process_file(f_json: Path,
+                  f_img: Path,
+                  f_depth: Path,
+                  f_alpha: Path,
+                  dir_output: Path,
+                  visualize_mesh: bool = False):
     """Project facial landmarks on rgb image and save output visualization
     Args:
         f_json (Path): Json file containing camera intrinsics
@@ -42,6 +47,7 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     rgb = cv2.imread(str(f_img))
     rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
     depth = tifffile.imread(str(f_depth))
+    alpha = tifffile.imread(str(f_alpha))
 
     # Project RGB image to 3D
     h, w, c = rgb.shape
@@ -55,11 +61,18 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     depth_pxs[np.isinf(depth_pxs)] = 0.0
     depth_pxs[np.isnan(depth_pxs)] = 0.0
 
-    # Filter valid pxs
-    valid_pxs = ~(depth_pxs < 1e-6)  # Depth with value of 0 is not needed to construct ptcloud
-    depth_pxs = depth_pxs[valid_pxs]
-    img_pxs = img_pxs[valid_pxs, :]
-    rgb_pxs = rgb_pxs[valid_pxs, :]
+    # Filter out invalid depth (==0)
+    # mask_valid = np.ones(depth.shape, dtype=np.uint8) * 255
+    # mask_valid[depth_pxs.reshape(depth.shape) < 1e-6] = 0
+    # # Filter based on alpha
+    # mask_valid[alpha < 0.5] = 0
+    # # out_filename = dir_output / f"{f_img.stem}.valid_depth.png"
+    # # cv2.imwrite(str(out_filename), mask_valid)
+
+    # valid_pxs = mask_valid.reshape((-1))  # Depth with value of 0 is not needed to construct ptcloud
+    # depth_pxs = depth_pxs[valid_pxs]
+    # img_pxs = img_pxs[valid_pxs, :]
+    # rgb_pxs = rgb_pxs[valid_pxs, :]
 
     # Cast to 3D, scale by depth.
     intrinsics = np.array(metadata.camera.intrinsics, dtype=np.float32)
@@ -82,6 +95,9 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     pcd_face = pcd_face.voxel_down_sample(voxel_size=FACE_MESH_DOWNSAMPLE_RADIUS)
     pcd_face.estimate_normals()
     pcd_face.orient_normals_towards_camera_location()
+    if visualize_mesh:
+        o3d.visualization.draw_geometries([pcd_face], mesh_show_back_face=True)
+        exit()
 
     # Construct mesh of face from pointcloud
     radii = [0.005, 0.01]
@@ -96,7 +112,7 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
         sphere.paint_uniform_color(np.array([[1], [0], [0]], dtype=np.float64))
         sphere.translate(landmark_)
         landmark_mesh += sphere
-    face_mesh += landmark_mesh
+    # face_mesh += landmark_mesh
 
     # VISUALIZE THE DATA FOR DEBUGGING
     if visualize_mesh:
@@ -105,6 +121,9 @@ def _process_file(f_json: Path, f_img: Path, f_depth, dir_output: Path, visualiz
     # Save mesh of face with landmarks.
     out_filename = dir_output / f"{f_img.stem}.face_mesh.ply"
     o3d.io.write_triangle_mesh(str(out_filename), face_mesh)
+    # Save ptcloud of face
+    out_filename = dir_output / f"{f_img.stem}.face_pcd.ply"
+    o3d.io.write_point_cloud(str(out_filename), pcd_face)
 
 
 def get_render_id_from_path(path: Path):
@@ -141,6 +160,9 @@ def main(cfg: DictConfig):
     ext_depth = cfg.file_ext.depth
     log.info(f"Depth img File Ext: {ext_depth}")
 
+    ext_alpha = cfg.file_ext.alpha
+    log.info(f"Alpha img File Ext: {ext_alpha}")
+
     ext_info = cfg.file_ext.info
     ext_info_type = ext_info.split(".")[-1]
     if ext_info_type != "json":
@@ -170,6 +192,10 @@ def main(cfg: DictConfig):
             f"Unequal number of json files ({num_json}) and " f'depth images ({num_images}) in dir: "{dir_input}"'
         )
 
+    alpha_filenames = sorted(dir_input.glob("*" + ext_alpha), key=get_render_id_from_path)
+    num_images = len(alpha_filenames)
+    log.info(f"Num Alpha Files: {num_images}")
+
     # Process files
     render_id = int(cfg.landmarks_3d.render_id)
     visualize_mesh = cfg.landmarks_3d.visualize
@@ -178,7 +204,8 @@ def main(cfg: DictConfig):
         info_file = dir_input / (f"{render_id}" + ext_info)
         rgb_file = dir_input / (f"{render_id}" + ext_rgb)
         depth_file = dir_input / (f"{render_id}" + ext_depth)
-        _process_file(info_file, rgb_file, depth_file, dir_output, visualize_mesh)
+        alpha_file = dir_input / (f"{render_id}" + ext_alpha)
+        _process_file(info_file, rgb_file, depth_file, alpha_file, dir_output, visualize_mesh)
     else:
         # Process all the files using multiple processes
         if visualize_mesh:
@@ -193,6 +220,7 @@ def main(cfg: DictConfig):
                     info_filenames,
                     rgb_filenames,
                     depth_filenames,
+                    alpha_filenames,
                     itertools.repeat(dir_output),
                     itertools.repeat(visualize_mesh),
                 ):
